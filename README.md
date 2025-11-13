@@ -2,7 +2,7 @@
 
 A near future philosophical novel about connection, suffering, and the stubborn will to stay human as the world unravels.
 
-![Front Cover](front-cover.jpg)
+![Front Cover](front-cover.png)
 
 ## Synopsis
 
