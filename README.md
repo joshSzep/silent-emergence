@@ -2,6 +2,10 @@
 
 A near future philosophical novel about connection, suffering, and the stubborn will to stay human as the world unravels.
 
+![Cover Image](cover.jpg)
+
+## Synopsis
+
 Silent Emergence follows Alex, a former software worker holding together a fragile life in Los Angeles while global tensions escalate into the unthinkable. As institutions collapse, communication networks fracture, and nuclear war spreads across continents, Alex and a small circle of ordinary people choose to meet the moment not with violence or panic but with presence. The novel tracks how a simple mindfulness practice becomes a lifeline when everything else falls apart, revealing what remains when the systems we trust fail all at once.
 
 This repository contains the full novel as plain Markdown files, one chapter per file.
