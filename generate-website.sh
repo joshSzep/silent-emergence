@@ -5,9 +5,11 @@ set -euo pipefail
 script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 website_dir="$script_dir/website"
 pdf_script="$script_dir/generate-pdf.sh"
+epub_script="$script_dir/generate-epub.sh"
 chapter_file="$script_dir/001.md"
 cover_src="$script_dir/front-cover.png"
 pdf_src="$script_dir/Silent Emergence.pdf"
+epub_src="$script_dir/Silent Emergence.epub"
 output_html="$website_dir/index.html"
 
 require_file() {
@@ -25,6 +27,11 @@ if [[ ! -x "$pdf_script" ]]; then
   exit 1
 fi
 
+if [[ ! -x "$epub_script" ]]; then
+  echo "Missing executable EPUB generator: $epub_script" >&2
+  exit 1
+fi
+
 require_file "$chapter_file" "first chapter source"
 require_file "$cover_src" "front cover image"
 
@@ -32,11 +39,14 @@ rm -rf "$website_dir"
 mkdir -p "$website_dir"
 
 "$pdf_script"
+"$epub_script"
 
 require_file "$pdf_src" "generated PDF"
+require_file "$epub_src" "generated EPUB"
 
 cp "$cover_src" "$website_dir/cover.png"
 cp "$pdf_src" "$website_dir/"
+cp "$epub_src" "$website_dir/"
 
 CHAPTER_FILE="$chapter_file" OUTPUT_HTML="$output_html" python3 <<'PY'
 from __future__ import annotations
@@ -822,6 +832,7 @@ document = f"""<!DOCTYPE html>
       <nav class="header-nav" aria-label="Primary">
         <a class="header-link" href="#chapter-one">First Chapter</a>
         <a class="header-link" href="Silent%20Emergence.pdf" download>Download PDF</a>
+        <a class="header-link" href="Silent%20Emergence.epub" download>Download EPUB</a>
       </nav>
     </div>
   </header>
@@ -837,6 +848,7 @@ document = f"""<!DOCTYPE html>
         <p class=\"blurb\">{blurb}</p>
         <div class=\"actions\">
           <a class=\"action-link\" href=\"Silent%20Emergence.pdf\" download>Download the PDF</a>
+          <a class=\"action-link\" href=\"Silent%20Emergence.epub\" download>Download the EPUB</a>
           <a class=\"action-link secondary\" href=\"#chapter-one\">Read the first chapter</a>
         </div>
       </div>
@@ -863,7 +875,10 @@ document = f"""<!DOCTYPE html>
       <div class=\"section-intro\">
         <h2 class=\"section-title\" id=\"closing-title\">Continue Into the Silence</h2>
         <p>{closing}</p>
-        <a class=\"action-link\" href=\"Silent%20Emergence.pdf\" download>Download the full novel</a>
+        <div class=\"actions\">
+          <a class=\"action-link\" href=\"Silent%20Emergence.pdf\" download>Download PDF</a>
+          <a class=\"action-link secondary\" href=\"Silent%20Emergence.epub\" download>Download EPUB</a>
+        </div>
       </div>
     </section>
   </main>
