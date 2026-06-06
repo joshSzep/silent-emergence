@@ -150,6 +150,7 @@ document = f"""<!DOCTYPE html>
 <html lang=\"en\">
 <head>
   <meta charset=\"utf-8\">
+  <title>{title_text} | A Novel by {author_text}</title>
   <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">
   <meta name=\"description\" content=\"{html.escape(description, quote=True)}\">
   <meta property=\"og:title\" content=\"{title_text} | {author_text}\">
@@ -172,6 +173,8 @@ document = f"""<!DOCTYPE html>
       --accent-strong: #d6e6e6;
       --rule: rgba(214, 225, 223, 0.22);
       --shadow: rgba(5, 10, 13, 0.34);
+      --fog-shift-near: 0px;
+      --fog-shift-far: 0px;
       --reading-width: 40rem;
       --content-width: min(72rem, calc(100vw - 3rem));
     }}
@@ -228,6 +231,36 @@ document = f"""<!DOCTYPE html>
       background:
         radial-gradient(circle at 50% 50%, transparent 38%, rgba(8, 13, 16, 0.36) 100%),
         linear-gradient(90deg, rgba(7, 11, 14, 0.22), transparent 16%, transparent 84%, rgba(7, 11, 14, 0.22));
+    }}
+
+    .parallax-fog,
+    .parallax-fog-alt {{
+      position: fixed;
+      inset: -8% 0;
+      pointer-events: none;
+      z-index: -1;
+      will-change: transform;
+    }}
+
+    .parallax-fog {{
+      background:
+        radial-gradient(circle at 50% 22%, rgba(235, 241, 240, 0.16), transparent 20%),
+        radial-gradient(circle at 18% 32%, rgba(168, 194, 196, 0.12), transparent 24%),
+        radial-gradient(circle at 80% 44%, rgba(148, 180, 183, 0.1), transparent 26%);
+      filter: blur(26px);
+      opacity: 0.68;
+      transform: translate3d(0, calc(var(--fog-shift-near) * 1), 0);
+      transition: transform 180ms linear;
+    }}
+
+    .parallax-fog-alt {{
+      background:
+        radial-gradient(circle at 50% 14%, rgba(245, 248, 247, 0.12), transparent 16%),
+        linear-gradient(180deg, rgba(202, 216, 217, 0.08), transparent 24%, transparent 72%, rgba(9, 14, 18, 0.14));
+      filter: blur(32px);
+      opacity: 0.58;
+      transform: translate3d(0, calc(var(--fog-shift-far) * 1), 0);
+      transition: transform 220ms linear;
     }}
 
     a {{
@@ -707,6 +740,8 @@ document = f"""<!DOCTYPE html>
       body::before,
       .fade,
       .site-header,
+      .parallax-fog,
+      .parallax-fog-alt,
       .cover-wrap img,
       .hero-copy,
       .eyebrow {{
@@ -776,6 +811,8 @@ document = f"""<!DOCTYPE html>
   </style>
 </head>
 <body>
+  <div class="parallax-fog" aria-hidden="true"></div>
+  <div class="parallax-fog-alt" aria-hidden="true"></div>
   <header class="site-header">
     <div class="header-inner">
       <div class="brand-block">
@@ -833,6 +870,29 @@ document = f"""<!DOCTYPE html>
   <footer>Silent Emergence</footer>
   <script>
     (function () {{
+      var reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+      if (!reduceMotion) {{
+        var root = document.documentElement;
+        var ticking = false;
+
+        var updateParallax = function () {{
+          var offset = window.scrollY || window.pageYOffset || 0;
+          root.style.setProperty('--fog-shift-near', (offset * -0.03).toFixed(2) + 'px');
+          root.style.setProperty('--fog-shift-far', (offset * -0.012).toFixed(2) + 'px');
+          ticking = false;
+        }};
+
+        updateParallax();
+
+        window.addEventListener('scroll', function () {{
+          if (!ticking) {{
+            window.requestAnimationFrame(updateParallax);
+            ticking = true;
+          }}
+        }}, {{ passive: true }});
+      }}
+
       if (!('IntersectionObserver' in window)) {{
         return;
       }}
