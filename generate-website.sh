@@ -167,6 +167,8 @@ document = f"""<!DOCTYPE html>
   <meta property=\"og:description\" content=\"{html.escape(description, quote=True)}\">
   <meta property=\"og:type\" content=\"website\">
   <meta property=\"og:image\" content=\"cover.png\">
+  <link rel=\"icon\" type=\"image/png\" href=\"cover.png\">
+  <link rel=\"apple-touch-icon\" href=\"cover.png\">
   <meta name="theme-color" content="#587780">
   <style>
     :root {{
