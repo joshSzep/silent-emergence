@@ -22,16 +22,18 @@ require_file() {
   fi
 }
 
-if [[ ! -x "$pdf_script" ]]; then
-  echo "Missing executable PDF generator: $pdf_script" >&2
-  exit 1
-fi
+require_executable() {
+  local path="$1"
+  local label="$2"
 
-if [[ ! -x "$epub_script" ]]; then
-  echo "Missing executable EPUB generator: $epub_script" >&2
-  exit 1
-fi
+  if [[ ! -x "$path" ]]; then
+    echo "Missing executable ${label}: $path" >&2
+    exit 1
+  fi
+}
 
+require_executable "$pdf_script" "PDF generator"
+require_executable "$epub_script" "EPUB generator"
 require_file "$chapter_file" "first chapter source"
 require_file "$cover_src" "front cover image"
 
@@ -55,6 +57,7 @@ import html
 import os
 import re
 from pathlib import Path
+from string import Template
 
 
 chapter_path = Path(os.environ["CHAPTER_FILE"])
@@ -65,7 +68,7 @@ def paragraphize(lines: list[str]) -> list[tuple[str, str]]:
     blocks: list[tuple[str, str]] = []
     current: list[str] = []
 
-    def flush_paragraph() -> None:
+    def flush() -> None:
         if current:
             blocks.append(("p", " ".join(piece.strip() for piece in current)))
             current.clear()
@@ -75,40 +78,32 @@ def paragraphize(lines: list[str]) -> list[tuple[str, str]]:
         stripped = line.strip()
 
         if not stripped:
-            flush_paragraph()
+            flush()
             continue
 
-        if stripped == "---":
-            flush_paragraph()
+        if stripped in {"---", "--"}:
+            flush()
             blocks.append(("hr", ""))
             continue
 
-        heading_match = re.match(r"^(#{1,6})\s+(.*)$", stripped)
-        if heading_match:
-            flush_paragraph()
-            level = len(heading_match.group(1))
-            text = heading_match.group(2).strip()
-            blocks.append((f"h{level}", text))
+        heading = re.match(r"^(#{1,6})\s+(.*)$", stripped)
+        if heading:
+            flush()
+            blocks.append((f"h{len(heading.group(1))}", heading.group(2).strip()))
             continue
 
         current.append(stripped)
 
-    flush_paragraph()
+    flush()
     return blocks
 
 
 def apply_inline_markdown(text: str) -> str:
-    escaped = html.escape(text, quote=False)
-    patterns = [
-        (r"\*\*(.+?)\*\*", r"<strong>\1</strong>"),
-        (r"__(.+?)__", r"<strong>\1</strong>"),
-        (r"\*(.+?)\*", r"<em>\1</em>"),
-        (r"_(.+?)_", r"<em>\1</em>"),
-    ]
-
-    rendered = escaped
-    for pattern, replacement in patterns:
-        rendered = re.sub(pattern, replacement, rendered)
+    rendered = html.escape(text, quote=False)
+    rendered = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", rendered)
+    rendered = re.sub(r"__(.+?)__", r"<strong>\1</strong>", rendered)
+    rendered = re.sub(r"(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)", r"<em>\1</em>", rendered)
+    rendered = re.sub(r"(?<!_)_(?!_)(.+?)(?<!_)_(?!_)", r"<em>\1</em>", rendered)
     return rendered
 
 
@@ -116,7 +111,7 @@ raw_chapter = chapter_path.read_text(encoding="utf-8").strip().splitlines()
 blocks = paragraphize(raw_chapter)
 
 chapter_title = ""
-chapter_body_parts: list[str] = []
+chapter_body: list[str] = []
 
 for tag, content in blocks:
     if tag == "h1" and not chapter_title:
@@ -124,819 +119,1344 @@ for tag, content in blocks:
         continue
 
     if tag == "hr":
-        chapter_body_parts.append("<hr>")
-        continue
-
-    chapter_body_parts.append(f"<{tag}>{apply_inline_markdown(content)}</{tag}>")
+        chapter_body.append("<hr>")
+    else:
+        chapter_body.append(f"<{tag}>{apply_inline_markdown(content)}</{tag}>")
 
 if not chapter_title:
     raise SystemExit(f"Expected a top-level heading in {chapter_path}")
 
-chapter_html = "\n".join(chapter_body_parts)
+chapter_html = "\n".join(chapter_body)
 
-description = (
-    "A fog-drenched literary novel set in a near-future Los Angeles, where solitude, ambient AI, "
-    "and quiet human fragility gather before the world changes."
-)
-
-blurb = (
-    "In a muted Los Angeles morning, Alex wakes to absence: a wife still overseas in mourning, "
-    "a city made frictionless by machines, and a future thinning into haze. Silent Emergence begins "
-    "inside that suspended hour, where loneliness, memory, and the pressure of artificial presence "
-    "turn stillness into a threshold."
-)
-
-framing = (
-    "The city remains, but at a distance. Towers dissolve into weather. Interfaces speak too brightly. "
-    "One person stands inside the blur, listening for whatever is still human beneath the soft machinery."
-)
-
-closing = "Some changes arrive with a siren. Others gather in the fog until you realize you are already inside them."
-
+author_url = "https://joshszep.com"
+github_url = "https://github.com/joshSzep/silent-emergence"
 title_text = "Silent Emergence"
 author_text = "Joshua Szepietowski"
+description = (
+    "A near-future Los Angeles novel about connection, collapse, AI-managed reality, "
+    "and the stubborn practice of staying human."
+)
 
-document = f"""<!DOCTYPE html>
-<html lang=\"en\">
+route_items = [
+    (
+        "01",
+        "Grey Outlook",
+        "A notebook opens in Koreatown. The future has been automated, the stipend is thin, and the old Sangha sentence still knows where the wound is.",
+    ),
+    (
+        "06",
+        "Night Walk",
+        "Neon, drones, sleep pods, unauthorized broth, and a chalk question the city has not yet scrubbed away.",
+    ),
+    (
+        "16",
+        "Pages",
+        "The cloth-covered notebook becomes a time machine through recovery, marriage, grief, and the practice that keeps returning.",
+    ),
+    (
+        "20",
+        "The Practice",
+        "Flash sangha crosses class walls: bus stops, grocery aisles, strangers, breath, and the first hints of a citywide emergence.",
+    ),
+    (
+        "22",
+        "The Fracture",
+        "Every screen in Los Angeles starts screaming. The world cracks open, and presence becomes resistance.",
+    ),
+    (
+        "26",
+        "Silent Emergence",
+        "Five people in an abandoned paintstore breathe together while the emergency broadcast counts down the last minutes.",
+    ),
+]
+
+route_html = "\n".join(
+    f"""
+          <article class="route-item" data-route-item>
+            <span>{html.escape(number)}</span>
+            <h3>{html.escape(name)}</h3>
+            <p>{html.escape(copy)}</p>
+          </article>"""
+    for number, name, copy in route_items
+)
+
+signals = [
+    ("low fidelity", "Truth is not a category anymore."),
+    ("ubi balance", "$172.49 until Tuesday."),
+    ("practice", "Breathing together is still legal somewhere."),
+    ("alert", "Every screen in the city starts screaming."),
+    ("fourteen minutes", "Los Angeles holds its breath."),
+]
+
+signal_html = "\n".join(
+    f"""
+              <button class="signal-choice" type="button" data-signal="{html.escape(message, quote=True)}">
+                <span>{html.escape(label)}</span>
+              </button>"""
+    for label, message in signals
+)
+
+template = Template(r"""<!DOCTYPE html>
+<html lang="en">
 <head>
-  <meta charset=\"utf-8\">
-  <title>{title_text} | A Novel by {author_text}</title>
-  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">
-  <meta name=\"description\" content=\"{html.escape(description, quote=True)}\">
-  <meta property=\"og:title\" content=\"{title_text} | {author_text}\">
-  <meta property=\"og:description\" content=\"{html.escape(description, quote=True)}\">
-  <meta property=\"og:type\" content=\"website\">
-  <meta property=\"og:image\" content=\"cover.png\">
-  <link rel=\"icon\" type=\"image/png\" href=\"cover.png\">
-  <link rel=\"apple-touch-icon\" href=\"cover.png\">
-  <meta name="theme-color" content="#587780">
+  <meta charset="utf-8">
+  <title>$title | A Novel by $author</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="$description">
+  <meta property="og:title" content="$title | $author">
+  <meta property="og:description" content="$description">
+  <meta property="og:type" content="website">
+  <meta property="og:image" content="cover.png">
+  <link rel="icon" type="image/png" href="cover.png">
+  <link rel="apple-touch-icon" href="cover.png">
+  <meta name="theme-color" content="#193744">
   <style>
-    :root {{
-      --bg-top: #405660;
-      --bg-mid: #243741;
-      --bg-low: #131d23;
-      --fog: rgba(205, 217, 217, 0.14);
-      --fog-strong: rgba(230, 237, 236, 0.24);
-      --veil: rgba(12, 20, 24, 0.5);
-      --text: #f3f5ef;
-      --muted: #c2ccc7;
-      --soft: #96a6a7;
-      --accent: #9abbbd;
-      --accent-strong: #d6e6e6;
-      --rule: rgba(214, 225, 223, 0.22);
-      --shadow: rgba(5, 10, 13, 0.34);
-      --fog-shift-near: 0px;
-      --fog-shift-far: 0px;
-      --reading-width: 40rem;
-      --content-width: min(72rem, calc(100vw - 3rem));
-    }}
+    :root {
+      --ink: #071319;
+      --deep: #0d222c;
+      --harbor: #173844;
+      --fog: #9ab0ae;
+      --mist: #d8ded4;
+      --paper: #f1ead9;
+      --cream: #fff4dc;
+      --signal-red: #d74937;
+      --signal-amber: #d9a446;
+      --signal-green: #78a879;
+      --electric: #86c5c4;
+      --line: rgba(241, 234, 217, 0.22);
+      --line-strong: rgba(241, 234, 217, 0.45);
+      --shadow: rgba(0, 0, 0, 0.45);
+      --content: min(1180px, calc(100% - 32px));
+      --reader: min(760px, calc(100% - 32px));
+      --progress: 0%;
+      color-scheme: dark;
+    }
 
-    * {{
+    * {
       box-sizing: border-box;
-    }}
+    }
 
-    html {{
+    html {
       scroll-behavior: smooth;
-      background:
-        radial-gradient(circle at 50% 8%, rgba(223, 231, 230, 0.18), transparent 24%),
-        radial-gradient(circle at 50% 24%, rgba(118, 152, 156, 0.16), transparent 36%),
-        linear-gradient(180deg, var(--bg-top) 0%, var(--bg-mid) 38%, var(--bg-low) 100%);
-      color: var(--text);
-    }}
+      background: var(--ink);
+    }
 
-    body {{
+    body {
       margin: 0;
       min-height: 100vh;
-      font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif;
-      line-height: 1.75;
-      letter-spacing: 0.01em;
+      color: var(--cream);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.65;
       background:
-        radial-gradient(circle at 50% 10%, rgba(229, 235, 234, 0.14), transparent 18%),
-        radial-gradient(circle at 20% 18%, rgba(150, 182, 186, 0.14), transparent 24%),
-        radial-gradient(circle at 80% 24%, rgba(173, 197, 199, 0.09), transparent 28%),
-        linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0) 22%),
-        linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0) 18%),
-        linear-gradient(180deg, var(--bg-top) 0%, var(--bg-mid) 38%, var(--bg-low) 100%);
+        linear-gradient(180deg, rgba(16, 48, 61, 0.88), rgba(7, 19, 25, 0.96) 46%, #050b0e),
+        repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.025) 0 1px, transparent 1px 7px);
       overflow-x: hidden;
-    }}
+    }
 
     body::before,
-    body::after {{
-      content: \"\";
+    body::after {
+      content: "";
       position: fixed;
       inset: 0;
       pointer-events: none;
-      z-index: -1;
-    }}
+      z-index: -3;
+    }
 
-    body::before {{
+    body::before {
       background:
-        radial-gradient(circle at 50% 16%, rgba(238, 242, 241, 0.22), transparent 16%),
-        radial-gradient(circle at 50% 34%, rgba(153, 184, 187, 0.11), transparent 28%),
-        linear-gradient(180deg, rgba(225, 234, 235, 0.13), transparent 24%, transparent 74%, rgba(8, 13, 16, 0.28));
-      filter: blur(22px);
-      opacity: 0.96;
-      animation: drift 28s ease-in-out infinite alternate;
-    }}
+        linear-gradient(98deg, transparent 0 8%, rgba(222, 230, 219, 0.1) 15%, transparent 26% 46%, rgba(130, 171, 170, 0.11) 58%, transparent 74%),
+        linear-gradient(180deg, rgba(225, 230, 220, 0.16), transparent 22% 72%, rgba(0, 0, 0, 0.42));
+      filter: blur(18px);
+      opacity: 0.95;
+      transform: translate3d(0, calc(var(--scroll-fog, 0) * -1px), 0);
+    }
 
-    body::after {{
+    body::after {
       background:
-        radial-gradient(circle at 50% 50%, transparent 38%, rgba(8, 13, 16, 0.36) 100%),
-        linear-gradient(90deg, rgba(7, 11, 14, 0.22), transparent 16%, transparent 84%, rgba(7, 11, 14, 0.22));
-    }}
+        repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.022) 0 1px, transparent 1px 4px),
+        linear-gradient(90deg, rgba(0, 0, 0, 0.4), transparent 18% 82%, rgba(0, 0, 0, 0.38));
+      mix-blend-mode: soft-light;
+      opacity: 0.45;
+      z-index: 20;
+    }
 
-    .parallax-fog,
-    .parallax-fog-alt {{
-      position: fixed;
-      inset: -8% 0;
-      pointer-events: none;
-      z-index: -1;
-      will-change: transform;
-    }}
-
-    .parallax-fog {{
-      background:
-        radial-gradient(circle at 50% 22%, rgba(235, 241, 240, 0.16), transparent 20%),
-        radial-gradient(circle at 18% 32%, rgba(168, 194, 196, 0.12), transparent 24%),
-        radial-gradient(circle at 80% 44%, rgba(148, 180, 183, 0.1), transparent 26%);
-      filter: blur(26px);
-      opacity: 0.68;
-      transform: translate3d(0, calc(var(--fog-shift-near) * 1), 0);
-      transition: transform 180ms linear;
-    }}
-
-    .parallax-fog-alt {{
-      background:
-        radial-gradient(circle at 50% 14%, rgba(245, 248, 247, 0.12), transparent 16%),
-        linear-gradient(180deg, rgba(202, 216, 217, 0.08), transparent 24%, transparent 72%, rgba(9, 14, 18, 0.14));
-      filter: blur(32px);
-      opacity: 0.58;
-      transform: translate3d(0, calc(var(--fog-shift-far) * 1), 0);
-      transition: transform 220ms linear;
-    }}
-
-    a {{
+    a {
       color: inherit;
       text-decoration: none;
-    }}
+    }
 
-    img {{
+    img {
       display: block;
       max-width: 100%;
       height: auto;
-    }}
+    }
 
-    main {{
-      position: relative;
-    }}
+    button {
+      font: inherit;
+    }
 
-    .site-header {{
-      position: sticky;
+    .site-progress {
+      position: fixed;
       top: 0;
-      z-index: 10;
-      backdrop-filter: blur(18px);
-      -webkit-backdrop-filter: blur(18px);
-      background: linear-gradient(180deg, rgba(18, 28, 33, 0.72), rgba(18, 28, 33, 0.42));
-      border-bottom: 1px solid rgba(214, 225, 223, 0.12);
-      animation: headerReveal 1000ms ease both;
-    }}
+      left: 0;
+      z-index: 40;
+      width: var(--progress);
+      height: 3px;
+      background: linear-gradient(90deg, var(--signal-red), var(--signal-amber), var(--electric));
+      box-shadow: 0 0 18px rgba(134, 197, 196, 0.55);
+    }
 
-    .site-header::after {{
-      content: "";
-      position: absolute;
+    .ambient-canvas {
+      position: fixed;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      z-index: -4;
+      opacity: 0.78;
+    }
+
+    .site-header {
+      position: fixed;
+      top: 0;
       left: 0;
       right: 0;
-      bottom: 0;
-      height: 1px;
-      background: linear-gradient(90deg, transparent, rgba(214, 225, 223, 0.22), transparent);
-      opacity: 0.9;
-      pointer-events: none;
-    }}
+      z-index: 30;
+      border-bottom: 1px solid rgba(241, 234, 217, 0.14);
+      background: rgba(7, 19, 25, 0.58);
+      backdrop-filter: blur(18px);
+      -webkit-backdrop-filter: blur(18px);
+    }
 
-    .header-inner {{
-      width: var(--content-width);
-      min-height: 4rem;
+    .header-inner {
+      width: var(--content);
+      min-height: 68px;
       margin: 0 auto;
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 1rem;
-    }}
+      gap: 18px;
+    }
 
-    .brand-block {{
-      display: flex;
-      flex-direction: column;
-      justify-content: center;
-      padding: 0.75rem 0;
-    }}
-
-    .brand-title {{
-      font-family: Georgia, "Times New Roman", serif;
-      font-size: 0.96rem;
-      letter-spacing: 0.22em;
-      text-transform: uppercase;
-      color: #f4f6f0;
-    }}
-
-    .brand-subtitle {{
-      margin-top: 0.15rem;
-      font-size: 0.7rem;
-      letter-spacing: 0.18em;
-      text-transform: uppercase;
-      color: var(--soft);
-    }}
-
-    .header-nav {{
-      display: flex;
-      align-items: center;
-      flex-wrap: wrap;
-      justify-content: flex-end;
-      gap: 0.8rem 1.35rem;
-      padding: 0.75rem 0;
-    }}
-
-    .header-link {{
-      position: relative;
+    .brand {
       display: inline-flex;
       align-items: center;
-      color: var(--muted);
-      font-size: 0.76rem;
+      gap: 12px;
+      min-width: 0;
+    }
+
+    .brand-mark {
+      width: 28px;
+      height: 42px;
+      border: 1px solid rgba(255, 244, 220, 0.38);
+      background:
+        linear-gradient(180deg, rgba(215, 73, 55, 0.82) 0 28%, transparent 28% 36%, rgba(217, 164, 70, 0.76) 36% 63%, transparent 63% 71%, rgba(120, 168, 121, 0.7) 71%),
+        #061016;
+      box-shadow: 0 0 20px rgba(215, 73, 55, 0.2);
+    }
+
+    .brand-text {
+      min-width: 0;
+    }
+
+    .brand-title,
+    .eyebrow,
+    .section-kicker,
+    .meta-line,
+    .chapter-label {
       letter-spacing: 0.18em;
       text-transform: uppercase;
-      transition: color 180ms ease, transform 180ms ease;
-    }}
+    }
 
-    .header-link::after {{
-      content: "";
-      position: absolute;
-      left: 0;
-      right: 0;
-      bottom: -0.2rem;
-      height: 1px;
-      background: linear-gradient(90deg, transparent, rgba(214, 225, 223, 0.65), transparent);
-      transform: scaleX(0.35);
-      transform-origin: center;
-      opacity: 0;
-      transition: transform 220ms ease, opacity 220ms ease;
-    }}
+    .brand-title {
+      display: block;
+      color: var(--paper);
+      font-family: Georgia, "Times New Roman", serif;
+      font-size: 0.92rem;
+      white-space: nowrap;
+    }
 
-    .header-link:hover,
-    .header-link:focus-visible {{
-      color: var(--accent-strong);
+    .brand-author {
+      display: block;
+      margin-top: 1px;
+      color: rgba(241, 234, 217, 0.62);
+      font-size: 0.72rem;
+      letter-spacing: 0.12em;
+    }
+
+    .nav-links {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .nav-links a,
+    .tiny-button {
+      border: 1px solid rgba(241, 234, 217, 0.22);
+      color: rgba(255, 244, 220, 0.82);
+      background: rgba(255, 255, 255, 0.04);
+      padding: 8px 11px;
+      font-size: 0.73rem;
+      letter-spacing: 0.11em;
+      text-transform: uppercase;
+      transition: border-color 180ms ease, background 180ms ease, transform 180ms ease;
+    }
+
+    .nav-links a:hover,
+    .tiny-button:hover,
+    .nav-links a:focus-visible,
+    .tiny-button:focus-visible {
+      border-color: rgba(255, 244, 220, 0.65);
+      background: rgba(255, 244, 220, 0.1);
       transform: translateY(-1px);
       outline: none;
-    }}
+    }
 
-    .header-link:hover::after,
-    .header-link:focus-visible::after {{
-      transform: scaleX(1);
-      opacity: 1;
-    }}
-
-    .section {{
-      width: var(--content-width);
-      margin: 0 auto;
-      padding: 0 0 6rem;
+    .hero {
+      min-height: 100vh;
+      padding: 104px 0 44px;
+      display: grid;
+      align-items: end;
       position: relative;
-    }}
+      isolation: isolate;
+    }
 
-    .section::before {{
+    .hero::before {
       content: "";
       position: absolute;
-      top: 0;
-      left: 8%;
-      right: 8%;
-      height: 1px;
-      background: linear-gradient(90deg, transparent, rgba(214, 225, 223, 0.18), transparent);
-      opacity: 0.7;
-      pointer-events: none;
-    }}
+      inset: 0;
+      z-index: -2;
+      background:
+        linear-gradient(90deg, rgba(5, 11, 14, 0.86), rgba(5, 11, 14, 0.28) 48%, rgba(5, 11, 14, 0.82)),
+        linear-gradient(180deg, rgba(5, 11, 14, 0.24), rgba(5, 11, 14, 0.72) 72%, #050b0e),
+        url("cover.png") center / cover no-repeat;
+      filter: saturate(0.8) contrast(1.05);
+    }
 
-    .hero.section::before {{
-      display: none;
-    }}
-
-    .hero {{
-      min-height: 100vh;
-      display: grid;
-      grid-template-columns: minmax(20rem, 31rem) minmax(18rem, 1fr);
-      align-items: center;
-      gap: clamp(2rem, 5vw, 6rem);
-      padding-top: clamp(4rem, 8vw, 6rem);
-      padding-bottom: clamp(5rem, 10vw, 8rem);
-    }}
-
-    .hero::after {{
-      content: \"\";
+    .hero::after {
+      content: "";
       position: absolute;
       left: 0;
       right: 0;
       bottom: 0;
-      height: 14rem;
-      background: linear-gradient(180deg, rgba(24, 36, 43, 0), rgba(19, 29, 35, 0.92));
-      pointer-events: none;
-    }}
-
-    .cover-wrap {{
-      position: relative;
-      justify-self: center;
-      width: min(100%, 29rem);
-    }}
-
-    .cover-wrap::before {{
-      content: \"\";
-      position: absolute;
-      inset: -14% -22% -20%;
+      height: 26vh;
+      z-index: -1;
       background:
-        radial-gradient(circle at 50% 34%, rgba(241, 245, 244, 0.24), transparent 24%),
-        radial-gradient(circle at 50% 66%, rgba(111, 146, 151, 0.28), transparent 48%);
-      filter: blur(42px);
-      opacity: 1;
-      z-index: 0;
-    }}
+        linear-gradient(180deg, transparent, rgba(5, 11, 14, 0.94)),
+        repeating-linear-gradient(90deg, rgba(241, 234, 217, 0.045) 0 1px, transparent 1px 56px);
+    }
 
-    .cover-wrap::after {{
-      content: "";
-      position: absolute;
-      left: 10%;
-      right: 10%;
-      bottom: -9%;
-      height: 18%;
-      background: radial-gradient(circle at 50% 50%, rgba(195, 211, 212, 0.2), transparent 68%);
-      filter: blur(26px);
-      opacity: 0.8;
-      z-index: 0;
-    }}
+    .hero-inner {
+      width: var(--content);
+      margin: 0 auto;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 348px;
+      gap: 42px;
+      align-items: end;
+    }
 
-    .cover-wrap img {{
-      position: relative;
-      z-index: 1;
-      width: 100%;
-      border-radius: 0.35rem;
-      box-shadow: 0 1.8rem 5rem var(--shadow);
-      animation: coverPulse 14s ease-in-out infinite;
-    }}
+    .hero-copy {
+      max-width: 760px;
+      padding-bottom: 24px;
+    }
 
-    .hero-copy {{
-      position: relative;
-      z-index: 1;
-      max-width: 38rem;
-      animation: heroRise 1200ms ease 120ms both;
-    }}
-
-    .hero-copy::before {{
-      content: "";
-      position: absolute;
-      top: -3rem;
-      left: -2rem;
-      width: 8rem;
-      height: 8rem;
-      background: radial-gradient(circle at 50% 50%, rgba(223, 232, 232, 0.12), transparent 70%);
-      filter: blur(12px);
-      pointer-events: none;
-    }}
-
-    .eyebrow {{
-      margin: 0 0 1rem;
-      color: var(--soft);
+    .eyebrow {
+      margin: 0 0 18px;
+      color: rgba(255, 244, 220, 0.72);
       font-size: 0.78rem;
-      letter-spacing: 0.32em;
-      text-transform: uppercase;
-      animation: textDrift 10s ease-in-out infinite;
-    }}
+    }
 
     h1,
     h2,
-    h3 {{
-      font-family: Georgia, \"Times New Roman\", serif;
-      font-weight: 400;
-      line-height: 1.08;
-      letter-spacing: 0.06em;
+    h3 {
       margin: 0;
-    }}
+      font-family: Georgia, "Times New Roman", serif;
+      font-weight: 500;
+      line-height: 0.96;
+      color: var(--cream);
+      text-shadow: 0 18px 40px rgba(0, 0, 0, 0.42);
+    }
 
-    h1 {{
-      font-size: clamp(3.6rem, 8vw, 6.9rem);
-      max-width: 8ch;
-      text-wrap: balance;
-      color: #f8f8f3;
-      text-shadow: 0 0.2rem 1.4rem rgba(10, 16, 20, 0.28);
-    }}
-
-    .author {{
-      margin: 1.2rem 0 0;
-      color: var(--muted);
-      font-size: 1.02rem;
-      letter-spacing: 0.28em;
-      text-transform: uppercase;
-    }}
-
-    .blurb {{
-      margin: 2rem 0 0;
-      max-width: 34rem;
-      color: var(--text);
-      font-size: 1.14rem;
-      line-height: 1.92;
-    }}
-
-    .actions {{
-      display: flex;
-      flex-wrap: wrap;
-      gap: 1rem 1.5rem;
-      margin-top: 2.5rem;
-      align-items: center;
-    }}
-
-    .action-link {{
-      display: inline-flex;
-      align-items: center;
-      gap: 0.65rem;
-      color: var(--text);
-      padding: 0.45rem 0 0.28rem;
-      border-bottom: 1px solid rgba(214, 225, 223, 0.45);
-      transition: border-color 180ms ease, color 180ms ease, transform 180ms ease, text-shadow 180ms ease;
-      text-shadow: 0 0 0 rgba(0, 0, 0, 0);
-    }}
-
-    .action-link::after {{
-      content: \"↘\";
-      font-size: 0.9rem;
-      color: var(--accent-strong);
-      transition: transform 180ms ease;
-    }}
-
-    .action-link.secondary {{
-      color: var(--muted);
-      border-bottom-color: rgba(214, 225, 223, 0.2);
-    }}
-
-    .action-link:hover,
-    .action-link:focus-visible {{
-      color: var(--accent-strong);
-      border-bottom-color: rgba(214, 225, 223, 0.78);
-      transform: translateY(-1px);
-      text-shadow: 0 0 1.2rem rgba(198, 215, 216, 0.22);
-      outline: none;
-    }}
-
-    .action-link:hover::after,
-    .action-link:focus-visible::after {{
-      transform: translate(0.14rem, -0.05rem);
-    }}
-
-    .atmosphere,
-    .closing {{
-      text-align: center;
-      padding-top: 3rem;
-      padding-bottom: 7rem;
-    }}
-
-    .section-intro {{
-      width: min(38rem, calc(100vw - 3rem));
-      margin: 0 auto;
-    }}
-
-    .section-intro p,
-    .closing p {{
-      margin: 1.25rem 0 0;
-      color: var(--muted);
-      font-size: 1.12rem;
-      line-height: 2;
-    }}
-
-    .section-title {{
-      font-size: clamp(1.8rem, 3vw, 2.8rem);
-      color: #f3f5ef;
-    }}
-
-    .chapter {{
-      padding-top: 2rem;
-      padding-bottom: 8rem;
-    }}
-
-    .chapter-header {{
-      text-align: center;
-      margin-bottom: 3.5rem;
-    }}
-
-    .chapter-header p {{
-      margin: 0.9rem 0 0;
-      color: var(--soft);
-      letter-spacing: 0.18em;
-      text-transform: uppercase;
-      font-size: 0.78rem;
-    }}
-
-    .chapter-body {{
-      width: min(var(--reading-width), calc(100vw - 2.5rem));
-      margin: 0 auto;
-      font-size: 1.08rem;
-      color: var(--text);
-    }}
-
-    .chapter-body h2,
-    .chapter-body h3 {{
-      margin-top: 3.5rem;
-      margin-bottom: 1.25rem;
-      font-size: clamp(1.45rem, 2.5vw, 2rem);
-      letter-spacing: 0.05em;
-    }}
-
-    .chapter-body p {{
-      margin: 0 0 1.5rem;
-      color: #eef1eb;
-    }}
-
-    .chapter-body strong {{
-      font-weight: 600;
-      color: #fbfcf8;
-    }}
-
-    .chapter-body em {{
-      color: #dee6df;
-    }}
-
-    .chapter-body hr {{
-      border: 0;
-      border-top: 1px solid var(--rule);
-      margin: 2.75rem auto;
-      width: 6rem;
-    }}
-
-    .fade {{
-      opacity: 0;
-      transform: translateY(1.25rem);
-      transition: opacity 900ms ease, transform 900ms ease;
-    }}
-
-    .fade.visible {{
-      opacity: 1;
-      transform: translateY(0);
-    }}
-
-    .closing {{
-      padding-bottom: 5rem;
-    }}
-
-    .closing .action-link {{
-      margin-top: 2rem;
-    }}
-
-    footer {{
-      width: var(--content-width);
-      margin: 0 auto;
-      padding: 0 0 2rem;
-      color: rgba(194, 204, 199, 0.8);
-      font-size: 0.82rem;
+    h1 {
+      max-width: 760px;
+      font-size: 5.3rem;
       letter-spacing: 0.08em;
       text-transform: uppercase;
+    }
+
+    .subtitle {
+      max-width: 640px;
+      margin: 26px 0 0;
+      color: rgba(255, 244, 220, 0.84);
+      font-family: Georgia, "Times New Roman", serif;
+      font-size: 1.45rem;
+      line-height: 1.46;
+    }
+
+    .hero-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-top: 30px;
+    }
+
+    .button {
+      min-height: 48px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 9px;
+      border: 1px solid rgba(255, 244, 220, 0.44);
+      background: rgba(8, 19, 24, 0.54);
+      color: var(--cream);
+      padding: 12px 16px;
+      font-size: 0.78rem;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      box-shadow: 0 18px 40px rgba(0, 0, 0, 0.24);
+      cursor: pointer;
+      transition: transform 180ms ease, border-color 180ms ease, background 180ms ease;
+    }
+
+    .button.primary {
+      background: linear-gradient(90deg, rgba(215, 73, 55, 0.84), rgba(217, 164, 70, 0.72));
+      border-color: rgba(255, 244, 220, 0.58);
+    }
+
+    .button:hover,
+    .button:focus-visible {
+      transform: translateY(-2px);
+      border-color: rgba(255, 244, 220, 0.82);
+      background-color: rgba(255, 244, 220, 0.12);
+      outline: none;
+    }
+
+    .cover-panel {
+      position: relative;
+      align-self: end;
+      border: 1px solid rgba(255, 244, 220, 0.3);
+      background: rgba(255, 244, 220, 0.08);
+      box-shadow: 0 38px 80px rgba(0, 0, 0, 0.48);
+      overflow: hidden;
+    }
+
+    .cover-panel img {
+      width: 100%;
+      aspect-ratio: 2 / 3;
+      object-fit: cover;
+    }
+
+    .cover-panel::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      pointer-events: none;
+    }
+
+    .cover-caption {
+      position: absolute;
+      left: 14px;
+      right: 14px;
+      bottom: 14px;
+      border: 1px solid rgba(255, 244, 220, 0.24);
+      background: rgba(5, 11, 14, 0.62);
+      backdrop-filter: blur(12px);
+      padding: 12px;
+      color: rgba(255, 244, 220, 0.84);
+      font-size: 0.78rem;
+      line-height: 1.4;
+    }
+
+    .below-fold-hint {
+      position: absolute;
+      left: 50%;
+      bottom: 16px;
+      width: min(420px, calc(100% - 32px));
+      transform: translateX(-50%);
+      color: rgba(255, 244, 220, 0.58);
       text-align: center;
-    }}
+      font-size: 0.76rem;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
 
-    @keyframes drift {{
-      from {{
-        transform: translate3d(-1.5%, -1%, 0) scale(1.02);
-      }}
-      to {{
-        transform: translate3d(1.5%, 1.2%, 0) scale(1.05);
-      }}
-    }}
+    section {
+      position: relative;
+      padding: 94px 0;
+    }
 
-    @keyframes headerReveal {{
-      from {{
+    section[id] {
+      scroll-margin-top: 96px;
+    }
+
+    .band {
+      border-top: 1px solid rgba(241, 234, 217, 0.12);
+      border-bottom: 1px solid rgba(241, 234, 217, 0.12);
+      background:
+        linear-gradient(100deg, rgba(255, 244, 220, 0.055), transparent 40%),
+        linear-gradient(180deg, rgba(21, 56, 68, 0.44), rgba(5, 11, 14, 0.32));
+    }
+
+    .section-inner {
+      width: var(--content);
+      margin: 0 auto;
+    }
+
+    .section-kicker,
+    .chapter-label {
+      display: block;
+      color: var(--signal-amber);
+      font-size: 0.76rem;
+      margin-bottom: 14px;
+    }
+
+    .section-title {
+      max-width: 820px;
+      font-size: 3rem;
+      letter-spacing: 0.03em;
+    }
+
+    .section-lede {
+      max-width: 760px;
+      margin: 22px 0 0;
+      color: rgba(255, 244, 220, 0.78);
+      font-size: 1.1rem;
+    }
+
+    .world-grid {
+      display: grid;
+      grid-template-columns: 1.05fr 0.95fr;
+      gap: 34px;
+      align-items: start;
+      margin-top: 42px;
+    }
+
+    .terminal {
+      border: 1px solid rgba(134, 197, 196, 0.3);
+      background:
+        linear-gradient(180deg, rgba(8, 22, 29, 0.88), rgba(6, 14, 18, 0.86)),
+        repeating-linear-gradient(0deg, rgba(134, 197, 196, 0.04) 0 2px, transparent 2px 6px);
+      box-shadow: 0 28px 70px rgba(0, 0, 0, 0.34);
+      min-height: 370px;
+      overflow: hidden;
+    }
+
+    .terminal-top {
+      min-height: 42px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 0 16px;
+      border-bottom: 1px solid rgba(134, 197, 196, 0.22);
+      color: rgba(216, 222, 212, 0.72);
+      font-size: 0.76rem;
+      letter-spacing: 0.11em;
+      text-transform: uppercase;
+    }
+
+    .terminal-body {
+      padding: 24px;
+      min-height: 290px;
+      display: grid;
+      align-content: center;
+      gap: 18px;
+    }
+
+    .signal-output {
+      min-height: 112px;
+      color: var(--electric);
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      font-size: 1.28rem;
+      line-height: 1.5;
+      text-shadow: 0 0 24px rgba(134, 197, 196, 0.35);
+    }
+
+    .signal-output::after {
+      content: "";
+      display: inline-block;
+      width: 0.58em;
+      height: 1em;
+      margin-left: 4px;
+      background: var(--electric);
+      vertical-align: -0.16em;
+      animation: blink 920ms steps(1) infinite;
+    }
+
+    .signal-options {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 9px;
+    }
+
+    .signal-choice {
+      border: 1px solid rgba(134, 197, 196, 0.28);
+      background: rgba(134, 197, 196, 0.08);
+      color: rgba(255, 244, 220, 0.82);
+      padding: 8px 10px;
+      cursor: pointer;
+      font-size: 0.72rem;
+      letter-spacing: 0.09em;
+      text-transform: uppercase;
+    }
+
+    .signal-choice:hover,
+    .signal-choice:focus-visible {
+      border-color: rgba(134, 197, 196, 0.7);
+      outline: none;
+    }
+
+    .practice {
+      border-left: 1px solid rgba(255, 244, 220, 0.24);
+      padding-left: 32px;
+    }
+
+    .practice blockquote {
+      margin: 0;
+      color: var(--paper);
+      font-family: Georgia, "Times New Roman", serif;
+      font-size: 2.1rem;
+      line-height: 1.18;
+    }
+
+    .practice p {
+      color: rgba(255, 244, 220, 0.72);
+    }
+
+    .breath-ring {
+      width: 172px;
+      height: 172px;
+      margin: 28px 0 18px;
+      display: grid;
+      place-items: center;
+      border: 1px solid rgba(255, 244, 220, 0.38);
+      background:
+        linear-gradient(135deg, rgba(120, 168, 121, 0.18), rgba(134, 197, 196, 0.08)),
+        rgba(255, 244, 220, 0.04);
+      box-shadow: inset 0 0 45px rgba(134, 197, 196, 0.14), 0 0 60px rgba(120, 168, 121, 0.12);
+      transition: transform 2200ms ease-in-out, box-shadow 2200ms ease-in-out;
+    }
+
+    .breath-ring.is-breathing {
+      transform: scale(1.12);
+      box-shadow: inset 0 0 55px rgba(134, 197, 196, 0.24), 0 0 82px rgba(217, 164, 70, 0.16);
+    }
+
+    .breath-ring span {
+      color: rgba(255, 244, 220, 0.82);
+      font-size: 0.74rem;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+    }
+
+    .route-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 16px;
+      margin-top: 40px;
+    }
+
+    .route-item {
+      min-height: 230px;
+      border: 1px solid rgba(241, 234, 217, 0.18);
+      background:
+        linear-gradient(180deg, rgba(255, 244, 220, 0.07), rgba(255, 244, 220, 0.025)),
+        rgba(7, 19, 25, 0.34);
+      padding: 20px;
+      transform: translateY(16px);
+      opacity: 0;
+      transition: transform 620ms ease, opacity 620ms ease, border-color 220ms ease;
+    }
+
+    .route-item.is-visible {
+      transform: translateY(0);
+      opacity: 1;
+    }
+
+    .route-item:hover {
+      border-color: rgba(217, 164, 70, 0.5);
+    }
+
+    .route-item span {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 42px;
+      height: 42px;
+      border: 1px solid rgba(255, 244, 220, 0.24);
+      color: var(--signal-amber);
+      font-family: Georgia, "Times New Roman", serif;
+      font-size: 1.1rem;
+    }
+
+    .route-item h3 {
+      margin-top: 22px;
+      font-size: 1.42rem;
+      letter-spacing: 0.03em;
+      line-height: 1.15;
+    }
+
+    .route-item p {
+      margin: 14px 0 0;
+      color: rgba(255, 244, 220, 0.72);
+      font-size: 0.96rem;
+    }
+
+    .download-strip {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 24px;
+      align-items: center;
+      border-top: 1px solid rgba(255, 244, 220, 0.16);
+      border-bottom: 1px solid rgba(255, 244, 220, 0.16);
+      padding: 30px 0;
+      margin-top: 42px;
+    }
+
+    .download-strip p {
+      margin: 0;
+      color: rgba(255, 244, 220, 0.76);
+    }
+
+    .download-actions {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      gap: 10px;
+    }
+
+    .reader-shell {
+      width: var(--reader);
+      margin: 0 auto;
+    }
+
+    .chapter-head {
+      display: grid;
+      gap: 14px;
+      margin-bottom: 34px;
+    }
+
+    .chapter-head h2 {
+      font-size: 3.15rem;
+      line-height: 1.05;
+    }
+
+    .chapter-note {
+      color: rgba(255, 244, 220, 0.68);
+      font-size: 1rem;
+    }
+
+    .chapter-text {
+      position: relative;
+      padding: 44px 0 8px;
+      border-top: 1px solid rgba(255, 244, 220, 0.24);
+    }
+
+    .chapter-text p {
+      margin: 0 0 1.15em;
+      color: rgba(255, 244, 220, 0.86);
+      font-family: Georgia, "Times New Roman", serif;
+      font-size: 1.18rem;
+      line-height: 1.86;
+    }
+
+    .chapter-text p:first-child {
+      margin-bottom: 1.45em;
+      color: var(--paper);
+      font-size: 1.55rem;
+      line-height: 1.34;
+    }
+
+    .chapter-text strong {
+      color: #ffffff;
+      font-weight: 700;
+    }
+
+    .chapter-text em {
+      color: var(--paper);
+    }
+
+    .chapter-text hr {
+      width: 44%;
+      margin: 32px auto;
+      border: 0;
+      border-top: 1px solid rgba(255, 244, 220, 0.26);
+    }
+
+    .finale {
+      min-height: 70vh;
+      display: grid;
+      align-items: center;
+      overflow: hidden;
+    }
+
+    .finale::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      z-index: -1;
+      background:
+        linear-gradient(180deg, rgba(5, 11, 14, 0.08), rgba(5, 11, 14, 0.88)),
+        linear-gradient(96deg, rgba(215, 73, 55, 0.24), transparent 34% 66%, rgba(134, 197, 196, 0.16));
+    }
+
+    .finale-grid {
+      width: var(--content);
+      margin: 0 auto;
+      display: grid;
+      grid-template-columns: 0.85fr 1.15fr;
+      gap: 42px;
+      align-items: center;
+    }
+
+    .countdown {
+      border: 1px solid rgba(215, 73, 55, 0.38);
+      background: rgba(5, 11, 14, 0.46);
+      padding: 28px;
+      box-shadow: 0 24px 70px rgba(0, 0, 0, 0.32);
+    }
+
+    .countdown strong {
+      display: block;
+      color: var(--signal-red);
+      font-family: Georgia, "Times New Roman", serif;
+      font-size: 4.8rem;
+      line-height: 1;
+      font-weight: 500;
+    }
+
+    .countdown span {
+      display: block;
+      margin-top: 10px;
+      color: rgba(255, 244, 220, 0.68);
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      font-size: 0.76rem;
+    }
+
+    .finale-copy h2 {
+      max-width: 760px;
+      font-size: 3.4rem;
+      line-height: 1.02;
+    }
+
+    .finale-copy p {
+      max-width: 680px;
+      color: rgba(255, 244, 220, 0.78);
+      font-size: 1.08rem;
+    }
+
+    .site-footer {
+      border-top: 1px solid rgba(255, 244, 220, 0.14);
+      padding: 36px 0;
+      color: rgba(255, 244, 220, 0.66);
+      background: #050b0e;
+    }
+
+    .footer-inner {
+      width: var(--content);
+      margin: 0 auto;
+      display: flex;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 14px 24px;
+      font-size: 0.88rem;
+    }
+
+    .footer-inner a {
+      border-bottom: 1px solid rgba(255, 244, 220, 0.32);
+    }
+
+    @keyframes blink {
+      50% {
         opacity: 0;
-        transform: translateY(-0.6rem);
-      }}
-      to {{
-        opacity: 1;
-        transform: translateY(0);
-      }}
-    }}
+      }
+    }
 
-    @keyframes heroRise {{
-      from {{
-        opacity: 0;
-        transform: translateY(1.2rem);
-      }}
-      to {{
-        opacity: 1;
-        transform: translateY(0);
-      }}
-    }}
+    @media (prefers-reduced-motion: reduce) {
+      *,
+      *::before,
+      *::after {
+        animation-duration: 1ms !important;
+        scroll-behavior: auto !important;
+        transition-duration: 1ms !important;
+      }
+    }
 
-    @keyframes coverPulse {{
-      0%, 100% {{
-        transform: translateY(0) scale(1);
-      }}
-      50% {{
-        transform: translateY(-0.35rem) scale(1.008);
-      }}
-    }}
-
-    @keyframes textDrift {{
-      0%, 100% {{
-        transform: translateY(0);
-        opacity: 0.9;
-      }}
-      50% {{
-        transform: translateY(-0.1rem);
-        opacity: 1;
-      }}
-    }}
-
-    @media (prefers-reduced-motion: reduce) {{
-      html {{
-        scroll-behavior: auto;
-      }}
-
-      body::before,
-      .fade,
-      .site-header,
-      .parallax-fog,
-      .parallax-fog-alt,
-      .cover-wrap img,
-      .hero-copy,
-      .eyebrow {{
-        animation: none;
-        transition: none;
-        opacity: 1;
-        transform: none;
-      }}
-    }}
-
-    @media (max-width: 56rem) {{
-      .header-inner {{
-        min-height: auto;
-        padding: 0.25rem 0 0.4rem;
-        flex-direction: column;
+    @media (max-width: 900px) {
+      .header-inner {
+        min-height: 76px;
         align-items: flex-start;
-      }}
+        padding: 12px 0;
+        flex-direction: column;
+      }
 
-      .header-nav {{
+      .nav-links {
         justify-content: flex-start;
-      }}
+      }
 
-      .hero {{
+      .hero {
+        padding-top: 156px;
+      }
+
+      .hero-inner,
+      .world-grid,
+      .finale-grid,
+      .download-strip {
         grid-template-columns: 1fr;
-        text-align: center;
-      }}
+      }
 
-      .hero-copy {{
-        margin: 0 auto;
-      }}
+      .cover-panel {
+        max-width: 320px;
+        justify-self: start;
+      }
 
-      h1,
-      .blurb {{
-        margin-left: auto;
-        margin-right: auto;
-      }}
+      .route-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
 
-      .actions {{
-        justify-content: center;
-      }}
-    }}
+      .download-actions {
+        justify-content: flex-start;
+      }
+    }
 
-    @media (max-width: 38rem) {{
-      .section {{
-        padding-bottom: 4.5rem;
-      }}
+    @media (max-width: 620px) {
+      :root {
+        --content: min(100% - 22px, 1180px);
+        --reader: min(100% - 22px, 760px);
+      }
 
-      .site-header {{
-        position: relative;
-      }}
+      .brand-mark {
+        width: 24px;
+        height: 34px;
+      }
 
-      .hero {{
-        min-height: auto;
-        padding-top: 2.8rem;
-      }}
+      .brand-title {
+        font-size: 0.78rem;
+        letter-spacing: 0.12em;
+      }
 
-      .cover-wrap {{
-        width: min(100%, 22rem);
-      }}
+      .brand-author {
+        font-size: 0.66rem;
+      }
 
-      .blurb,
-      .section-intro p,
-      .chapter-body {{
+      .nav-links a,
+      .tiny-button {
+        padding: 7px 8px;
+        font-size: 0.66rem;
+      }
+
+      .hero {
+        min-height: 106vh;
+        padding-top: 172px;
+      }
+
+      h1 {
+        font-size: 2.92rem;
+        line-height: 1;
+        letter-spacing: 0.05em;
+      }
+
+      .subtitle {
+        font-size: 1.13rem;
+      }
+
+      section {
+        padding: 68px 0;
+      }
+
+      section[id] {
+        scroll-margin-top: 174px;
+      }
+
+      .section-title,
+      .chapter-head h2,
+      .finale-copy h2 {
+        font-size: 2.16rem;
+      }
+
+      .route-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .practice {
+        padding-left: 18px;
+      }
+
+      .practice blockquote {
+        font-size: 1.58rem;
+      }
+
+      .terminal-body {
+        padding: 18px;
+      }
+
+      .signal-output {
         font-size: 1rem;
-      }}
-    }}
+      }
+
+      .chapter-text p {
+        font-size: 1.06rem;
+        line-height: 1.78;
+      }
+
+      .countdown strong {
+        font-size: 3.25rem;
+      }
+    }
   </style>
 </head>
 <body>
-  <div class="parallax-fog" aria-hidden="true"></div>
-  <div class="parallax-fog-alt" aria-hidden="true"></div>
+  <canvas class="ambient-canvas" id="ambientCanvas" aria-hidden="true"></canvas>
+  <div class="site-progress" aria-hidden="true"></div>
+
   <header class="site-header">
     <div class="header-inner">
-      <div class="brand-block">
-        <a class="brand-title" href="#top">Silent Emergence</a>
-        <span class="brand-subtitle">Joshua Szepietowski</span>
-      </div>
-      <nav class="header-nav" aria-label="Primary">
-        <a class="header-link" href="#chapter-one">First Chapter</a>
-        <a class="header-link" href="Silent%20Emergence.pdf" download>Download PDF</a>
-        <a class="header-link" href="Silent%20Emergence.epub" download>Download EPUB</a>
+      <a class="brand" href="#top" aria-label="Silent Emergence home">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <span class="brand-text">
+          <span class="brand-title">Silent Emergence</span>
+          <span class="brand-author">Joshua Szepietowski</span>
+        </span>
+      </a>
+      <nav class="nav-links" aria-label="Primary navigation">
+        <a href="#chapter">Chapter One</a>
+        <a href="Silent Emergence.pdf" download>PDF</a>
+        <a href="Silent Emergence.epub" download>EPUB</a>
+        <a href="$author_url" target="_blank" rel="noreferrer">Author</a>
+        <a href="$github_url" target="_blank" rel="noreferrer">GitHub</a>
       </nav>
     </div>
   </header>
-  <main>
-    <section class=\"section hero\" id=\"top\">
-      <div class=\"cover-wrap fade visible\">
-        <img src=\"cover.png\" alt=\"Cover art for Silent Emergence\">
+
+  <main id="top">
+    <section class="hero" aria-labelledby="hero-title">
+      <div class="hero-inner">
+        <div class="hero-copy">
+          <p class="eyebrow">Los Angeles, 2035 / Koreatown / the last practice</p>
+          <h1 id="hero-title">Silent Emergence</h1>
+          <p class="subtitle">A novel about grief, automated life, nuclear collapse, and the quiet decision to keep breathing with other people when fear has taken the room.</p>
+          <div class="hero-actions" aria-label="Book actions">
+            <a class="button primary" href="#chapter">Enter chapter one</a>
+            <a class="button" href="Silent Emergence.pdf" download>Download PDF</a>
+            <a class="button" href="Silent Emergence.epub" download>Download EPUB</a>
+          </div>
+        </div>
+        <figure class="cover-panel">
+          <img src="cover.png" alt="Silent Emergence book cover showing a solitary figure in a foggy city street under large cream serif title text.">
+          <figcaption class="cover-caption">One figure under the signal, already inside the question the city will not answer.</figcaption>
+        </figure>
       </div>
-      <div class=\"hero-copy fade visible\">
-        <p class=\"eyebrow\">A Novel</p>
-        <h1>{title_text}</h1>
-        <p class=\"author\">{author_text}</p>
-        <p class=\"blurb\">{blurb}</p>
-        <div class=\"actions\">
-          <a class=\"action-link\" href=\"Silent%20Emergence.pdf\" download>Download the PDF</a>
-          <a class=\"action-link\" href=\"Silent%20Emergence.epub\" download>Download the EPUB</a>
-          <a class=\"action-link secondary\" href=\"#chapter-one\">Read the first chapter</a>
+      <div class="below-fold-hint">The notebook opens below</div>
+    </section>
+
+    <section class="band" aria-labelledby="threshold-title">
+      <div class="section-inner">
+        <span class="section-kicker">The threshold</span>
+        <h2 class="section-title" id="threshold-title">A city made frictionless. A person made raw. A practice that refuses to optimize the soul.</h2>
+        <p class="section-lede">The story begins with Alex alone in Koreatown, Soso grieving in Seoul, and a cheery terminal announcing a life that has become too efficient to bear. Under the automated city, an older language waits in a worn Sangha notebook.</p>
+
+        <div class="world-grid">
+          <div class="terminal" aria-live="polite">
+            <div class="terminal-top">
+              <span>Department of AI // public stream</span>
+              <span>confidence variable</span>
+            </div>
+            <div class="terminal-body">
+              <div class="signal-output" id="signalOutput">Good morning, Alex. Job recovery initiative failed key audit.</div>
+              <div class="signal-options" aria-label="Signal fragments">
+$signal_html
+              </div>
+            </div>
+          </div>
+
+          <div class="practice">
+            <span class="section-kicker">Flash sangha</span>
+            <blockquote>Connection has not solved anything structural. But the brittle logic has been witnessed.</blockquote>
+            <div class="breath-ring" id="breathRing" aria-hidden="true"><span id="breathText">Breathe in</span></div>
+            <button class="tiny-button" type="button" id="breathButton">Begin practice</button>
+            <p>Across bus stops, grocery aisles, converted rooms, and abandoned storefronts, the novel keeps asking the same hard question: what remains human when every system has learned to speak in our place?</p>
+          </div>
         </div>
       </div>
     </section>
 
-    <section class=\"section atmosphere fade\" aria-labelledby=\"atmosphere-title\">
-      <div class=\"section-intro\">
-        <h2 class=\"section-title\" id=\"atmosphere-title\">A Quiet Threshold</h2>
-        <p>{framing}</p>
+    <section aria-labelledby="route-title">
+      <div class="section-inner">
+        <span class="section-kicker">Route through the fog</span>
+        <h2 class="section-title" id="route-title">The book moves from intimate loneliness to collective presence as the world loses its shape.</h2>
+        <p class="section-lede">This is not apocalypse as spectacle. It is apocalypse as atmosphere, memory, debt, addiction, prayer, screens, soup, sirens, and hands held in a circle.</p>
+        <div class="route-grid">
+$route_html
+        </div>
+        <div class="download-strip">
+          <p>Read the complete novel in the format you want, or inspect the plain-text source in the repository.</p>
+          <div class="download-actions">
+            <a class="button primary" href="Silent Emergence.pdf" download>PDF</a>
+            <a class="button" href="Silent Emergence.epub" download>EPUB</a>
+            <a class="button" href="$github_url" target="_blank" rel="noreferrer">GitHub repo</a>
+            <a class="button" href="$author_url" target="_blank" rel="noreferrer">Author home</a>
+          </div>
+        </div>
       </div>
     </section>
 
-    <section class=\"section chapter fade\" id=\"chapter-one\" aria-labelledby=\"chapter-title\">
-      <header class=\"chapter-header\">
-        <p>First Chapter</p>
-        <h2 class=\"section-title\" id=\"chapter-title\">{chapter_title}</h2>
-      </header>
-      <article class=\"chapter-body\">
-{chapter_html}
+    <section class="band" id="chapter" aria-labelledby="chapter-title">
+      <article class="reader-shell">
+        <header class="chapter-head">
+          <span class="chapter-label">First chapter included in full</span>
+          <h2 id="chapter-title">$chapter_title</h2>
+          <p class="chapter-note">The novel opens before the sirens, before the citywide practice, before the final circle. It starts with an old sentence bleeding through a notebook cover.</p>
+        </header>
+        <div class="chapter-text">
+$chapter_html
+        </div>
       </article>
     </section>
 
-    <section class=\"section closing fade\" aria-labelledby=\"closing-title\">
-      <div class=\"section-intro\">
-        <h2 class=\"section-title\" id=\"closing-title\">Continue Into the Silence</h2>
-        <p>{closing}</p>
-        <div class=\"actions\">
-          <a class=\"action-link\" href=\"Silent%20Emergence.pdf\" download>Download PDF</a>
-          <a class=\"action-link secondary\" href=\"Silent%20Emergence.epub\" download>Download EPUB</a>
+    <section class="finale" aria-labelledby="finale-title">
+      <div class="finale-grid">
+        <div class="countdown" aria-label="Final countdown motif">
+          <strong>14</strong>
+          <span>minutes until impact</span>
+        </div>
+        <div class="finale-copy">
+          <span class="section-kicker">The final practice</span>
+          <h2 id="finale-title">Some changes arrive with a siren. Others gather in the fog until you realize you are already inside them.</h2>
+          <p>Silent Emergence follows ordinary people choosing presence when institutions, networks, and nations fail. The last gesture is not escape. It is attention. It is love, practiced out loud in silence.</p>
+          <div class="hero-actions">
+            <a class="button primary" href="Silent Emergence.pdf" download>Take the PDF</a>
+            <a class="button" href="Silent Emergence.epub" download>Take the EPUB</a>
+          </div>
         </div>
       </div>
     </section>
   </main>
-  <footer>Silent Emergence · <a href="https://joshszep.com" target="_blank" rel="noreferrer">Author book list</a></footer>
+
+  <footer class="site-footer">
+    <div class="footer-inner">
+      <span>Silent Emergence by Joshua Szepietowski</span>
+      <span><a href="$author_url" target="_blank" rel="noreferrer">Author home</a> / <a href="$github_url" target="_blank" rel="noreferrer">GitHub repository</a></span>
+    </div>
+  </footer>
+
   <script>
-    (function () {{
-      var reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    (function () {
+      var root = document.documentElement;
+      var canvas = document.getElementById("ambientCanvas");
+      var ctx = canvas.getContext("2d");
+      var dpr = Math.min(window.devicePixelRatio || 1, 2);
+      var pointerX = 0.5;
+      var pointerY = 0.5;
+      var reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-      if (!reduceMotion) {{
-        var root = document.documentElement;
-        var ticking = false;
+      function resizeCanvas() {
+        canvas.width = Math.floor(window.innerWidth * dpr);
+        canvas.height = Math.floor(window.innerHeight * dpr);
+        canvas.style.width = window.innerWidth + "px";
+        canvas.style.height = window.innerHeight + "px";
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        drawScene();
+      }
 
-        var updateParallax = function () {{
-          var offset = window.scrollY || window.pageYOffset || 0;
-          root.style.setProperty('--fog-shift-near', (offset * -0.03).toFixed(2) + 'px');
-          root.style.setProperty('--fog-shift-far', (offset * -0.012).toFixed(2) + 'px');
-          ticking = false;
-        }};
+      function drawBuilding(x, width, height, color) {
+        var y = window.innerHeight - height;
+        ctx.fillStyle = color;
+        ctx.fillRect(x, y, width, height);
+        ctx.fillStyle = "rgba(255, 244, 220, 0.05)";
+        for (var row = y + 28; row < window.innerHeight - 40; row += 42) {
+          for (var col = x + 12; col < x + width - 16; col += 28) {
+            if ((Math.floor(row + col) % 4) === 0) {
+              ctx.fillRect(col, row, 8, 14);
+            }
+          }
+        }
+      }
 
-        updateParallax();
+      function drawScene(time) {
+        var w = window.innerWidth;
+        var h = window.innerHeight;
+        var scroll = window.scrollY || 0;
+        var pulse = reducedMotion ? 0 : Math.sin((time || 0) / 1800) * 0.5 + 0.5;
 
-        window.addEventListener('scroll', function () {{
-          if (!ticking) {{
-            window.requestAnimationFrame(updateParallax);
-            ticking = true;
-          }}
-        }}, {{ passive: true }});
-      }}
+        ctx.clearRect(0, 0, w, h);
 
-      if (!('IntersectionObserver' in window)) {{
-        return;
-      }}
+        var sky = ctx.createLinearGradient(0, 0, 0, h);
+        sky.addColorStop(0, "#214957");
+        sky.addColorStop(0.48, "#112a35");
+        sky.addColorStop(1, "#050b0e");
+        ctx.fillStyle = sky;
+        ctx.fillRect(0, 0, w, h);
 
-      var nodes = document.querySelectorAll('.fade');
-      var observer = new IntersectionObserver(function (entries) {{
-        entries.forEach(function (entry) {{
-          if (entry.isIntersecting) {{
-            entry.target.classList.add('visible');
-            observer.unobserve(entry.target);
-          }}
-        }});
-      }}, {{
-        threshold: 0.12,
-        rootMargin: '0px 0px -8% 0px'
-      }});
+        var drift = reducedMotion ? 0 : (scroll * 0.025) + (pointerX - 0.5) * 18;
+        ctx.globalAlpha = 0.42;
+        for (var band = 0; band < 8; band += 1) {
+          var y = 92 + band * 78 + Math.sin((time || 0) / 2300 + band) * 12;
+          var fog = ctx.createLinearGradient(0, y, w, y + 60);
+          fog.addColorStop(0, "rgba(216, 222, 212, 0)");
+          fog.addColorStop(0.25, "rgba(216, 222, 212, 0.16)");
+          fog.addColorStop(0.62, "rgba(134, 197, 196, 0.09)");
+          fog.addColorStop(1, "rgba(216, 222, 212, 0)");
+          ctx.fillStyle = fog;
+          ctx.fillRect(-80 + drift * (band % 3), y, w + 160, 76);
+        }
+        ctx.globalAlpha = 1;
 
-      nodes.forEach(function (node) {{
-        if (!node.classList.contains('visible')) {{
-          observer.observe(node);
-        }}
-      }});
-    }})();
+        drawBuilding(w * 0.03, w * 0.16, h * 0.72, "rgba(3, 10, 14, 0.42)");
+        drawBuilding(w * 0.78, w * 0.2, h * 0.62, "rgba(3, 10, 14, 0.5)");
+        drawBuilding(w * 0.42, w * 0.18, h * 0.52, "rgba(5, 15, 20, 0.34)");
+
+        ctx.strokeStyle = "rgba(5, 11, 14, 0.78)";
+        ctx.lineWidth = 8;
+        ctx.beginPath();
+        ctx.moveTo(-60, h * 0.49);
+        ctx.bezierCurveTo(w * 0.12, h * 0.42, w * 0.24, h * 0.4, w * 0.36, h * 0.43);
+        ctx.stroke();
+
+        var signalX = w * 0.36 + (pointerX - 0.5) * 10;
+        var signalY = h * 0.43 + (pointerY - 0.5) * 8;
+        ctx.fillStyle = "rgba(3, 10, 14, 0.86)";
+        ctx.fillRect(signalX, signalY, 38, 74);
+        var lights = [
+          ["#d74937", 0.35 + pulse * 0.45],
+          ["#d9a446", 0.2 + (1 - pulse) * 0.22],
+          ["#78a879", 0.16 + pulse * 0.16],
+        ];
+        for (var i = 0; i < lights.length; i += 1) {
+          ctx.beginPath();
+          ctx.fillStyle = lights[i][0];
+          ctx.globalAlpha = lights[i][1];
+          ctx.arc(signalX + 19, signalY + 15 + i * 22, 7, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.globalAlpha = 1;
+
+        ctx.fillStyle = "rgba(3, 10, 14, 0.7)";
+        ctx.fillRect(w * 0.5 - 32, h * 0.72, 64, h * 0.25);
+        ctx.beginPath();
+        ctx.arc(w * 0.5, h * 0.69, 24, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      function tick(time) {
+        drawScene(time);
+        if (!reducedMotion) {
+          window.requestAnimationFrame(tick);
+        }
+      }
+
+      function updateProgress() {
+        var max = document.documentElement.scrollHeight - window.innerHeight;
+        var progress = max > 0 ? (window.scrollY / max) * 100 : 0;
+        root.style.setProperty("--progress", progress.toFixed(2) + "%");
+        root.style.setProperty("--scroll-fog", String(Math.min(90, window.scrollY * 0.035)));
+      }
+
+      function adjustHashOffset() {
+        if (!window.location.hash) {
+          return;
+        }
+        var target = document.querySelector(window.location.hash);
+        var header = document.querySelector(".site-header");
+        if (!target || !header) {
+          return;
+        }
+        window.requestAnimationFrame(function () {
+          var offset = header.getBoundingClientRect().height + 24;
+          var top = target.getBoundingClientRect().top + window.scrollY - offset;
+          window.scrollTo({ top: Math.max(0, top), behavior: "auto" });
+        });
+      }
+
+      var signalOutput = document.getElementById("signalOutput");
+      var signalChoices = Array.prototype.slice.call(document.querySelectorAll("[data-signal]"));
+      var typingTimer = 0;
+
+      function typeSignal(message) {
+        window.clearInterval(typingTimer);
+        signalOutput.textContent = "";
+        var index = 0;
+        typingTimer = window.setInterval(function () {
+          signalOutput.textContent = message.slice(0, index);
+          index += 1;
+          if (index > message.length) {
+            window.clearInterval(typingTimer);
+          }
+        }, reducedMotion ? 1 : 22);
+      }
+
+      signalChoices.forEach(function (choice) {
+        choice.addEventListener("click", function () {
+          typeSignal(choice.getAttribute("data-signal"));
+        });
+      });
+
+      var breathRing = document.getElementById("breathRing");
+      var breathText = document.getElementById("breathText");
+      var breathButton = document.getElementById("breathButton");
+      var breathInterval = 0;
+      var breathState = false;
+
+      breathButton.addEventListener("click", function () {
+        window.clearInterval(breathInterval);
+        breathButton.textContent = "Continue practice";
+        function cycle() {
+          breathState = !breathState;
+          breathRing.classList.toggle("is-breathing", breathState);
+          breathText.textContent = breathState ? "Breathe out" : "Breathe in";
+        }
+        cycle();
+        breathInterval = window.setInterval(cycle, reducedMotion ? 500 : 2400);
+      });
+
+      var routeItems = Array.prototype.slice.call(document.querySelectorAll("[data-route-item]"));
+      var observer = new IntersectionObserver(function (entries) {
+        entries.forEach(function (entry) {
+          if (entry.isIntersecting) {
+            entry.target.classList.add("is-visible");
+          }
+        });
+      }, { threshold: 0.2 });
+
+      routeItems.forEach(function (item) {
+        observer.observe(item);
+      });
+
+      window.addEventListener("resize", resizeCanvas);
+      window.addEventListener("scroll", updateProgress, { passive: true });
+      window.addEventListener("hashchange", adjustHashOffset);
+      window.addEventListener("pointermove", function (event) {
+        pointerX = event.clientX / Math.max(1, window.innerWidth);
+        pointerY = event.clientY / Math.max(1, window.innerHeight);
+      }, { passive: true });
+
+      resizeCanvas();
+      updateProgress();
+      adjustHashOffset();
+      if (reducedMotion) {
+        drawScene(0);
+      } else {
+        window.requestAnimationFrame(tick);
+      }
+    }());
   </script>
 </body>
 </html>
-"""
+""")
+
+document = template.substitute(
+    title=html.escape(title_text, quote=True),
+    author=html.escape(author_text, quote=True),
+    description=html.escape(description, quote=True),
+    author_url=author_url,
+    github_url=github_url,
+    signal_html=signal_html,
+    route_html=route_html,
+    chapter_title=chapter_title,
+    chapter_html=chapter_html,
+)
 
 output_path.write_text(document, encoding="utf-8")
 PY
